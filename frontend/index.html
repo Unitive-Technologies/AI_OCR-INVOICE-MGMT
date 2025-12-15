@@ -8,5 +8,33 @@
 <body>
 <div id="root"></div>
 <script type="module" src="/src/main.jsx"></script>
+<!-- Firebase CDN SDK -->
+<script type="module">
+
+    // Import Firebase core + Firestore from CDN
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, addDoc, serverTimestamp }
+        from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // Your Firebase config (copy from console)
+    const firebaseConfig = {
+        apiKey: "AIzaSyC0LrJOd0ROMPtJiG172VoLvOE0n9h-XBpGc",
+        authDomain: "docai-81a0f.firebaseapp.com",
+        projectId: "docai-81a0f",
+        storageBucket: "docai-81a0f.firebasestorage.app",
+        messagingSenderId: "30818761970",
+        appId: "1:30818761970:web:a7f125a5124e18de87e46b",
+        measurementId: "G-7BG47BSP L9"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Attach db to window so React can use it
+    window.db = db;
+
+</script>
+
 </body>
 </html>

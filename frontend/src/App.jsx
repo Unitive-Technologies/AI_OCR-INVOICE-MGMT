@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import { uploadInvoice, runOCR, runDetect, runExtract } from "./api/invoice";
 import DragDrop from "./components/DragDrop";
 import PdfPreview from "./components/PdfPreview";
+import CacheStats from "./components/CacheStats";
 import { jsonToCSV } from "./utils/csv";
 import { marked } from "marked";
 
@@ -26,6 +27,14 @@ export default function App() {
         if (f) setLocalFile(f);
     };
 
+    // NEW: Emit cache status event
+    const emitCacheStatus = (operation, hit) => {
+        const event = new CustomEvent('cacheStatus', {
+            detail: { operation, hit }
+        });
+        window.dispatchEvent(event);
+    };
+
     const handleStart = async () => {
         if (!file) {
             setError("No file chosen");
@@ -33,17 +42,29 @@ export default function App() {
         }
         setError("");
         setLoadingStep("Uploading file...");
+
         try {
             const up = await uploadInvoice(file);
-            const fileId = up.file_id ?? up.file_id ?? up.id ?? up?.id;
+            const fileId = up.file_id ?? up.id;
+
             setLoadingStep("Running OCR...");
             await runOCR(fileId);
 
             setLoadingStep("Running detection...");
+            const detectStart = Date.now();
             await runDetect(fileId);
+            const detectTime = Date.now() - detectStart;
+
+            // Emit cache status (if response < 500ms, likely cache hit)
+            emitCacheStatus('detect', detectTime < 500);
 
             setLoadingStep("Running extract...");
+            const extractStart = Date.now();
             const extracted = await runExtract(fileId, true, false);
+            const extractTime = Date.now() - extractStart;
+
+            // Emit cache status
+            emitCacheStatus('extract', extractTime < 500);
 
             setResult(extracted);
             setLoadingStep("");
@@ -65,7 +86,6 @@ export default function App() {
 
     const downloadCSV = () => {
         if (!result) return;
-        // prefer line_items if present, else whole extraction
         const data = result?.extraction?.line_items ?? result?.extraction ?? result;
         const csv = jsonToCSV(data);
         const blob = new Blob([csv], { type: "text/csv" });
@@ -99,17 +119,36 @@ export default function App() {
                 </div>
 
                 <div className="glass controls">
-                    <label className="choose-btn" htmlFor="file">Choose File</label>
-                    <input id="file" ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleChoose} />
-                    <button className="action-btn" onClick={() => fileInputRef.current.click()}>Choose File</button>
+                    <input
+                        id="file"
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={handleChoose}
+                        style={{ display: "none" }}
+                    />
+                    <button
+                        className="action-btn"
+                        onClick={() => fileInputRef.current.click()}
+                    >
+                        Choose File
+                    </button>
 
-                    <button className="action-btn" onClick={handleStart} disabled={!file}>
+                    <button
+                        className="action-btn"
+                        onClick={handleStart}
+                        disabled={!file || loadingStep}
+                    >
                         {loadingStep ? `${loadingStep}` : "Start Processing"}
                     </button>
-                    <div style={{ marginLeft: "auto", color: "#9fb0d8" }}>{file?.name}</div>
+                    <div style={{ marginLeft: "auto", color: "#9fb0d8", fontSize: 13 }}>
+                        {file?.name || "No file selected"}
+                    </div>
                 </div>
 
                 <DragDrop onFile={setLocalFile} />
+
+                <CacheStats />
 
                 <div className="glass summary-card">
                     <div className="summary-title">Summary</div>
@@ -123,11 +162,11 @@ export default function App() {
                             <div className="label">Total</div>
                         </div>
                         <div className="metric">
-                            <div className="val">{result?.extraction?.vat_amount ?? "-"}</div>
+                            <div className="val">{result?.extraction?.vat_amount ?? result?.extraction?.tax_amount ?? "-"}</div>
                             <div className="label">VAT</div>
                         </div>
                         <div className="metric">
-                            <div className="val">{result?.extraction?.subtotal ?? "-"}</div>
+                            <div className="val">{result?.extraction?.subtotal ?? result?.extraction?.subtotal_amount ?? "-"}</div>
                             <div className="label">Subtotal</div>
                         </div>
                     </div>
@@ -157,12 +196,16 @@ export default function App() {
                                     <tr key={idx}>
                                         <td>{li.description || li.desc || "-"}</td>
                                         <td>{li.quantity ?? li.qty ?? 0}</td>
-                                        <td>{li.unit_price ?? li.unit_price ?? "-"}</td>
-                                        <td>{li.total_amount ?? li.total ?? "-"}</td>
+                                        <td>{li.unit_price ?? "-"}</td>
+                                        <td>{li.total_amount ?? li.total ?? li.total_price ?? "-"}</td>
                                     </tr>
                                 ))
                             ) : (
-                                <tr><td colSpan="4" style={{ color: "var(--muted)", padding: 18 }}>No line items found</td></tr>
+                                <tr>
+                                    <td colSpan="4" style={{ color: "var(--muted)", padding: 18, textAlign: "center" }}>
+                                        No line items found
+                                    </td>
+                                </tr>
                             )}
                             </tbody>
                         </table>
@@ -173,50 +216,78 @@ export default function App() {
                     <div>
                         <div style={{ fontWeight: 700 }}>Invoice Details</div>
                         <div className="kv" style={{ marginTop: 8 }}>
-                            <strong>Invoice #</strong><span>{result?.extraction?.invoice_number ?? "-"}</span>
+                            <strong>Invoice #</strong>
+                            <span>{result?.extraction?.invoice_number ?? "-"}</span>
                         </div>
-                        <div className="kv"><strong>Invoice Date</strong><span>{result?.extraction?.invoice_date ?? "-"}</span></div>
-                        <div className="kv"><strong>Customer #</strong><span>{result?.extraction?.customer_number ?? result?.extraction?.customer_id ?? "-"}</span></div>
+                        <div className="kv">
+                            <strong>Invoice Date</strong>
+                            <span>{result?.extraction?.invoice_date ?? "-"}</span>
+                        </div>
+                        <div className="kv">
+                            <strong>Customer #</strong>
+                            <span>{result?.extraction?.customer_number ?? result?.extraction?.customer_id ?? "-"}</span>
+                        </div>
                     </div>
 
                     <div style={{ textAlign: "right" }}>
-                        <div className="kv"><strong>Supplier</strong><span>{result?.extraction?.supplier_info?.name ?? result?.extraction?.vendor_name ?? "-"}</span></div>
-                        <div className="kv"><strong>Currency</strong><span>{result?.extraction?.currency ?? result?.extraction?.currency_code ?? "-"}</span></div>
+                        <div className="kv">
+                            <strong>Supplier</strong>
+                            <span>{result?.extraction?.supplier_info?.name ?? result?.extraction?.vendor_name ?? "-"}</span>
+                        </div>
+                        <div className="kv">
+                            <strong>Currency</strong>
+                            <span>{result?.extraction?.currency ?? result?.extraction?.currency_code ?? "EUR"}</span>
+                        </div>
                     </div>
                 </div>
-
             </div>
 
             {/* RIGHT */}
             <div className="right-col">
                 <div className="glass raw-card">
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                         <div style={{ fontWeight: 700 }}>PDF / Image Preview</div>
-                        <div style={{ color: "var(--muted)", fontSize: 13 }}>{file?.type || ""}</div>
+                        <div style={{ color: "var(--muted)", fontSize: 13 }}>
+                            {file?.type || ""}
+                        </div>
                     </div>
 
                     <PdfPreview fileUrl={fileUrl} />
 
-                    <div style={{ display: "flex", gap: 8, marginTop: 8, justifyContent: "space-between" }}>
-                        <div className="downloads">
-                            <button className="small-btn" onClick={downloadJSON} disabled={!result}>Download JSON</button>
-                            <button className="small-btn" onClick={downloadCSV} disabled={!result}>Download CSV</button>
-                            <button className="small-btn" onClick={copyJSON} disabled={!result}>Copy JSON</button>
+                    <div style={{ display: "flex", gap: 8, marginTop: 8, justifyContent: "space-between", flexWrap: "wrap" }}>
+                        <div className="downloads" style={{ display: "flex", gap: 8 }}>
+                            <button className="small-btn" onClick={downloadJSON} disabled={!result}>
+                                Download JSON
+                            </button>
+                            <button className="small-btn" onClick={downloadCSV} disabled={!result}>
+                                Download CSV
+                            </button>
+                            <button className="small-btn" onClick={copyJSON} disabled={!result}>
+                                Copy JSON
+                            </button>
                         </div>
 
-                        <div style={{ color: "var(--muted)", fontSize: 12 }}>
-                            {error ? <span style={{ color: "#ff7b7b" }}>{error}</span> : (loadingStep || "Ready")}
+                        <div style={{ color: "var(--muted)", fontSize: 12, display: "flex", alignItems: "center" }}>
+                            {error ? (
+                                <span style={{ color: "#ff7b7b" }}>{error}</span>
+                            ) : (
+                                <span>{loadingStep || "Ready"}</span>
+                            )}
                         </div>
                     </div>
                 </div>
 
                 <div className="glass raw-card">
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                        <div style={{ fontWeight:700 }}>Raw JSON</div>
-                        <div style={{ color: "var(--muted)", fontSize: 12 }}>Preview of backend response</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <div style={{ fontWeight: 700 }}>Raw JSON</div>
+                        <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                            Preview of backend response
+                        </div>
                     </div>
 
-                    <pre className="result-box">{result ? JSON.stringify(result, null, 2) : "// No response yet"}</pre>
+                    <pre className="result-box">
+                        {result ? JSON.stringify(result, null, 2) : "// No response yet"}
+                    </pre>
                 </div>
             </div>
         </div>
