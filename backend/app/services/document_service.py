@@ -2,6 +2,11 @@ import os
 import uuid
 from typing import Optional
 
+from sqlalchemy.orm import Session
+
+from app.models_db import Document
+
+
 class DocumentService:
     def __init__(self):
         self.upload_dir = "uploads"
@@ -13,14 +18,36 @@ class DocumentService:
     # ------------------------------------------
     # SAVE FILE
     # ------------------------------------------
-    def save_file(self, file) -> str:
+    def save_file(self, file: bytes, filename: str | None = None, db: Session | None = None) -> str:
+        """
+        Save raw file bytes to disk, return file_id (UUID).
+        Optionally persist basic document metadata to the database if a Session is provided.
+        """
         file_id = str(uuid.uuid4())
-        filename = f"{file_id}.pdf"
+        # Keep original filename extension if available, else default to .pdf
+        if filename:
+            _, ext = os.path.splitext(filename)
+            ext = ext or ".pdf"
+        else:
+            ext = ".pdf"
 
-        path = os.path.join(self.upload_dir, filename)
+        stored_filename = f"{file_id}{ext}"
+
+        path = os.path.join(self.upload_dir, stored_filename)
 
         with open(path, "wb") as f:
             f.write(file)
+
+        # Optionally record metadata in DB
+        if db is not None:
+            doc = Document(
+                id=file_id,
+                filename=filename or stored_filename,
+                content_type=None,  # can be filled by caller if needed
+                storage_path=path,
+            )
+            db.add(doc)
+            db.commit()
 
         return file_id
 
