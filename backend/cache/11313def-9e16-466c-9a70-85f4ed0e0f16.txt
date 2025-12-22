@@ -1,0 +1,331 @@
+cpb
+CPB SOFTWARE (GERMANY) GMBH
+Im Bruch 3, 63897 Miltenberg
+Telefon: +49 9371 9786 0
+germany@cpb-software.com
+www.cpb-software.com
+CPB Software (Germany) GmbH - Im Bruch 3 - 63897 Miltenberg/Main
+Musterkunde AG
+Mr. John Doe
+Musterstr. 23
+12345 Musterstadt
+Name: Stefanie Müller
+Phone: +49 9371 9786-0
+Invoice WMACCESS Internet
+VAT No. DE199378386
+Invoice No
+123100401
+Customer No
+Date
+Invoice Period
+01.02.2024-29.02.2024
+12345
+1. März 2024
+Service Description
+quantity
+Total Amount
+1
+0
+0
+0
+0
+14
+0
+162
+Basic Fee wmView
+Basis fee for additional user accounts
+Basic Fee wmPos
+Basic Fee wmGuide
+Change of user accounts
+Transaction Fee T1
+Transaction Fee T2
+Transaction Fee T3
+Transaction Fee T4
+Transaction Fee T5
+Transaction Fee T6
+Transaction Fee G1
+Transaction Fee G2
+Transaction Fee G3
+Transaction Fee G4
+Transaction Fee G5
+Transaction Fee G6
+Amount
+-without VAT-
+130,00 €
+10,00 €
+50,00 €
+1.000,00 €
+10,00 €
+0,58 €
+0,70 €
+1,50 €
+0,50 €
+0,80 €
+1,80 €
+0,30 €
+0,30 €
+0,40 €
+0,40 €
+0,30 €
+0,30 €
+Total
+0
+0
+130,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+8,12 €
+0,00 €
+243,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+381,12 €
+72,41 €
+453,53 €
+0
+0
+0
+0
+0
+0
+0
+VAT 19 %
+Gross Amount incl. VAT
+Terms of Payment: Immediate payment without discount. Any bank charges must be paid by the invoice recipient.
+Bank fees at our expense will be charged to the invoice recipient!
+Please credit the amount invoiced to IBAN DE29 1234 5678 9012 3456 78 | BIC GENODE51MIC (SEPA Credit Transfer)
+This invoice is generated automatically and will not be signed
+cpb
+software
+Invoice Details
+Period:
+01.02.2024
+to
+29.02.2024
+Unit:
+Musterkunde AG
+12345
+T1:
+G1:
+G2:
+G3:
+G4:
+G5:
+Request sections:
+Amount in Euro:
+T2:
+0,70
+T3:
+1,50
+T4:
+0,50
+T5:
+0,80
+T6:
+1,80
+G6:
+0,30
+0,58
+0,30
+0,30
+0,40
+0,40
+0,30
+10
+0
+99
+0
+0
+0
+0
+0
+0
+0
+0
+0
+154,30 €
+user-account-1
+user-account-2
+4
+0
+63
+0
+0
+0
+0
+0
+0
+0
+0
+96,82 €
+T1:
+T4:
+T5:
+T6:
+G1:
+G2:
+G3:
+G4:
+G5:
+G6:
+Transaction Fee Seg
+Queries in Total:
+Total in Euro:
+14
+T2: T3:
+0
+162
+0,00 € 243,00 €
+0
+0
+0
+0
+0
+0
+0
+0
+0
+8,12 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+0,00 €
+251,12 €
+The explanation of the query fee categories (T1 to T6 and G1 to G6) can be found on our website:
+https://www.wmaccess.com/abfragekategorien
+cpb
+software
+Invoice Details for wmView Query Reference
+Period:
+01.02.2024
+to
+29.02.2024
+Unit:
+Musterkunde AG
+12345
+Query Reference:
+wmview, wmProfile and User Profiles Query Segments:
+T1: T2: T3: T4: T5: T6:
+4
+0
+9
+0
+0
+0
+15,82 €
+0
+0
+12
+0
+0
+0
+18,00 €
+0
+0
+4
+0
+0
+0
+6,00 €
+5
+0
+36
+0
+0
+0
+56,90 €
+0
+0
+19
+0
+0
+0
+28,50 €
+*Not specified*
+AZR/31/27439
+CCL/3715
+CRS/28432
+Cs/52113
+GS 32090
+Kpi/22695
+PG 7772
+Rjn/11138
+SF-M 596/99-08
+Ttrb/17885
+1
+0
+7
+0
+0
+0
+11,08 €
+2
+0
+6
+0
+0
+0
+10,16 €
+0
+0
+11
+0
+0
+0
+16,50 €
+0
+0
+15
+0
+0
+0
+22,50 €
+0
+0
+5
+0
+0
+0
+7,50 €
+35,08 €
+1
+0
+23
+0
+0
+0
+WPN:24791
+1
+0
+4
+0
+0
+0
+6,58 €
+Wwt/15658
+0
+0
+11
+0
+0
+0
+16,50€
+Price for each Query in Euro:
+0,70 1,50 0.50
+0,58
+0,80
+1,80

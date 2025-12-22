@@ -9,7 +9,8 @@ from app.api.detect_router import router as detect_router
 from app.api.ocr_router import router as ocr_router
 from app.api.extract_router import router as extract_router
 from app.api.health_router import router as health_router
-from app.api.cache_router import router as cache_router  # ✅ NEW
+from app.api.cache_router import router as cache_router
+from app.api.query_router import router as query_router
 from app.db import engine, Base
 
 app = FastAPI(
@@ -32,7 +33,8 @@ app.include_router(detect_router)
 app.include_router(ocr_router)
 app.include_router(extract_router)
 app.include_router(health_router)
-app.include_router(cache_router)  # ✅ NEW
+app.include_router(cache_router)
+app.include_router(query_router)
 
 # Create database tables on startup (simple, no migrations).
 Base.metadata.create_all(bind=engine)
