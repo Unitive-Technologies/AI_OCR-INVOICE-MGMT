@@ -95,7 +95,7 @@ High‑level layout:
 
 Create a `.env` file in `backend/` (next to `main.py`) with:
 
-```bash
+
 GCP_PROJECT_ID=your-gcp-project-id
 GCP_LOCATION=your-document-ai-location          # e.g. us, us-central1
 GCP_PROCESSOR_ID=your-document-ai-processor-id  # the Document AI processor
@@ -105,3 +105,76 @@ GEMINI_API_KEY=your-gemini-api-key
 
 # Optional: override DB connection (otherwise defaults to local Postgres)
 DATABASE_URL=postgresql+psycopg://docai:docai@localhost:5432/docai
+
+## End‑to‑End Workflow
+
+1. Upload
+◦  User uploads or drags a PDF/image file in the UI.
+◦  Frontend calls POST /api/upload with multipart/form-data.
+◦  Backend:
+▪  Saves bytes to uploads/
+▪  Creates a Document row in Postgres
+▪  Returns file_id
+2. OCR
+◦  Frontend calls POST /api/ocr/{file_id}.
+◦  Backend:
+▪  Reads bytes from disk
+▪  Sends to Document AI
+▪  Stores extracted text both in:
+▪  cache/{file_id}.txt
+▪  ocr_results table (via OCRResult model)
+3. Detect
+◦  Frontend calls POST /api/detect?file_id=....
+◦  Backend:
+▪  Fetches OCR text via document_service.get_text
+▪  Uses GeminiClient.classify_document with smart cache (cache/gemini/*.json)
+▪  Returns document_type and confidence
+4. Extract (+ Summary / Embeddings)
+◦  Frontend calls POST /api/extract/{file_id}?include_summary=true&include_embeddings=false.
+◦  Backend:
+▪  Ensures OCR text exists (otherwise 400)
+▪  Classifies again (or uses override) and calls GeminiClient.extract_structured
+▪  Persists a record depending on used_type:
+▪  Invoice, Receipt, PurchaseOrder, or generic ExtractionResult
+▪  Optionally calls:
+▪  GeminiClient.summarize for a markdown summary
+▪  GeminiClient.generate_embeddings (via NLPService)
+▪  Returns a JSON payload with:
+▪  detected_type, used_type
+▪  extraction object
+▪  summary (string, often markdown)
+▪  embeddings (list of floats, if enabled)
+5. UI
+◦  Shows:
+▪  PDF/image preview
+▪  Summary (rendered via marked)
+▪  Key invoice fields + line items
+▪  Raw JSON
+◦  CacheStats component polls /api/cache/stats and listens for cacheStatus events
+     to show cache hits/misses and estimated cost savings.
+•  Users can download JSON/CSV or copy JSON.
+
+
+
+Key API Endpoints
+
+All paths are relative to VITE_API_URL (default http://localhost:8000):
+
+•  POST /api/upload – upload file, returns { file_id, filename }
+•  POST /api/ocr/{file_id} – run OCR; returns { file_id, text }
+•  POST /api/detect?file_id=... – classify doc; returns { file_id, document_type, confidence }
+•  POST /api/extract/{file_id} – extract structured data  
+  Query params:
+•  override_type (optional)
+•  include_summary (true/false)
+•  include_embeddings (true/false)
+•  GET /api/cache/stats – cache statistics
+•  DELETE /api/cache/clear[?operation=classify|extract|summarize|embeddings] – clear cache
+•  POST /api/cache/warm – warm cache with sample texts
+•  GET /api/documents – list documents (pagination)
+•  GET /api/documents/{document_id} – document details
+•  GET /api/invoices – list invoices with filters
+•  GET /api/invoices/{invoice_id} – invoice details (+ optional raw metadata)
+•  GET /api/invoices/stats/summary – basic invoice stats
+•  GET /health, GET /health/db – health checks
+```bash
