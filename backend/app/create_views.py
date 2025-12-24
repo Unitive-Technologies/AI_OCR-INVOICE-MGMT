@@ -35,10 +35,23 @@ def create_views():
                     conn.rollback()
 
     print("\n✅ Views created successfully!")
-    print("\nYou can now use:")
-    print("  SELECT * FROM invoices_summary;")
-    print("  SELECT * FROM invoices_detail;")
-    print("  SELECT * FROM invoices_extended;")
+    print("\nYou can now use convenient views, for example:")
+    print("  -- Invoices")
+    print("  SELECT * FROM invoices_summary LIMIT 20;")
+    print("  SELECT * FROM invoices_detail LIMIT 5;")
+    print("  SELECT * FROM invoices_extended LIMIT 20;")
+    print("\n  -- Core tables")
+    print("  SELECT * FROM documents_view LIMIT 20;")
+    print("  SELECT * FROM ocr_results_view LIMIT 20;")
+    print("  SELECT * FROM document_classifications_view LIMIT 20;")
+    print("  SELECT * FROM document_processing_view LIMIT 20;")
+    print("  SELECT * FROM receipts_view LIMIT 20;")
+    print("  SELECT * FROM purchase_orders_view LIMIT 20;")
+    print("  SELECT * FROM extraction_results_view LIMIT 20;")
+    print("\n  -- Pretty JSON for non-invoice raw_metadata")
+    print("  SELECT * FROM receipts_detail LIMIT 5;")
+    print("  SELECT * FROM purchase_orders_detail LIMIT 5;")
+    print("  SELECT * FROM extraction_results_detail LIMIT 5;")
 
 
 if __name__ == "__main__":
