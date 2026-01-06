@@ -14,8 +14,10 @@ class Document(Base):
     content_type = Column(String, nullable=True)
     storage_path = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    session_id = Column(String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Relationships
+    session = relationship("Session", back_populates="documents")
     ocr_results = relationship("OCRResult", back_populates="document", uselist=False, cascade="all, delete-orphan")
     classifications = relationship("DocumentClassification", back_populates="document", cascade="all, delete-orphan")
     processing_history = relationship("DocumentProcessing", back_populates="document", cascade="all, delete-orphan")
@@ -23,6 +25,7 @@ class Document(Base):
     receipts = relationship("Receipt", back_populates="document", cascade="all, delete-orphan")
     purchase_orders = relationship("PurchaseOrder", back_populates="document", cascade="all, delete-orphan")
     extraction_results = relationship("ExtractionResult", back_populates="document", cascade="all, delete-orphan")
+
 
 
 class Invoice(Base):
@@ -132,3 +135,13 @@ class ExtractionResult(Base):
 
     document = relationship("Document", back_populates="extraction_results")
 
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=True)  # Optional session name
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationship
+    documents = relationship("Document", back_populates="session", cascade="all, delete-orphan")

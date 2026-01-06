@@ -37,3 +37,41 @@ export async function runExtract(fileId, include_summary = true, include_embeddi
     const resp = await API.post(`/api/extract/${fileId}`, null, { params });
     return resp.data;
 }
+export async function createSession(name = null) {
+    const params = name ? { name } : {};
+    const resp = await API.post("/api/sessions", null, { params });
+    return resp.data;
+}
+
+export async function uploadMultipleFiles(sessionId, files) {
+    const fd = new FormData();
+    files.forEach(file => {
+        fd.append("files", file);
+    });
+    const resp = await API.post(`/api/sessions/${sessionId}/upload`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+    });
+    return resp.data;
+}
+
+export async function processSession(sessionId) {
+    const resp = await API.post(`/api/sessions/${sessionId}/process-all`);
+    return resp.data;
+}
+
+export async function searchSession(sessionId, query) {
+    const resp = await API.get(`/api/sessions/${sessionId}/search`, {
+        params: { query },
+    });
+    return resp.data;
+}
+
+export async function getSession(sessionId) {
+    const resp = await API.get(`/api/sessions/${sessionId}`);
+    return resp.data;
+}
+
+export async function listSessions() {
+    const resp = await API.get("/api/sessions");
+    return resp.data;
+}

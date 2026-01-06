@@ -3,10 +3,12 @@ import { uploadInvoice, runOCR, runDetect, runExtract } from "./api/invoice";
 import DragDrop from "./components/DragDrop";
 import PdfPreview from "./components/PdfPreview";
 import CacheStats from "./components/CacheStats";
+import MultiDocumentMode from "./components/MultiDocumentMode";
 import { jsonToCSV } from "./utils/csv";
 import { marked } from "marked";
 
 export default function App() {
+    const [mode, setMode] = useState("single"); // "single" or "multi"
     const [file, setFile] = useState(null);
     const [fileUrl, setFileUrl] = useState("");
     const [loadingStep, setLoadingStep] = useState("");
@@ -107,14 +109,47 @@ export default function App() {
         return marked.parse(summary);
     };
 
+    // Render multi-document mode
+    if (mode === "multi") {
+        return (
+            <div className="app-wrap">
+                <div className="glass header" style={{ marginBottom: "20px", padding: "15px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                        <div>
+                            <div className="logo">DocAI – Invoice Extractor</div>
+                            <div className="subtitle">Advanced Mode - Multi-Document Processing</div>
+                        </div>
+                        <button
+                            className="action-btn"
+                            onClick={() => setMode("single")}
+                        >
+                            Switch to Single Mode
+                        </button>
+                    </div>
+                </div>
+                <MultiDocumentMode />
+            </div>
+        );
+    }
+
+    // Render single-document mode (existing functionality)
     return (
         <div className="app-wrap">
             {/* LEFT */}
             <div className="left-col">
                 <div className="glass header">
-                    <div>
-                        <div className="logo">DocAI – Invoice Extractor</div>
-                        <div className="subtitle">Upload → OCR → Detect → Extract</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                        <div>
+                            <div className="logo">DocAI – Invoice Extractor</div>
+                            <div className="subtitle">Upload → OCR → Detect → Extract</div>
+                        </div>
+                        <button
+                            className="action-btn"
+                            onClick={() => setMode("multi")}
+                            style={{ marginLeft: "auto" }}
+                        >
+                            Advanced Mode (Multi-Document)
+                        </button>
                     </div>
                 </div>
 
