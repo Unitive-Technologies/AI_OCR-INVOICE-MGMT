@@ -36,8 +36,8 @@ app.include_router(extract_router)
 app.include_router(health_router)
 app.include_router(cache_router)
 app.include_router(query_router)
-
 app.include_router(session_router)
+
 # Create database tables on startup (simple, no migrations).
 Base.metadata.create_all(bind=engine)
 

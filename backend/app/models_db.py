@@ -6,6 +6,17 @@ from sqlalchemy.orm import relationship
 from app.db import Base
 
 
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    documents = relationship("Document", back_populates="session", cascade="all, delete-orphan")
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -25,7 +36,6 @@ class Document(Base):
     receipts = relationship("Receipt", back_populates="document", cascade="all, delete-orphan")
     purchase_orders = relationship("PurchaseOrder", back_populates="document", cascade="all, delete-orphan")
     extraction_results = relationship("ExtractionResult", back_populates="document", cascade="all, delete-orphan")
-
 
 
 class Invoice(Base):
@@ -135,13 +145,3 @@ class ExtractionResult(Base):
 
     document = relationship("Document", back_populates="extraction_results")
 
-class Session(Base):
-    __tablename__ = "sessions"
-
-    id = Column(String, primary_key=True, index=True)
-    name = Column(String, nullable=True)  # Optional session name
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-    # Relationship
-    documents = relationship("Document", back_populates="session", cascade="all, delete-orphan")

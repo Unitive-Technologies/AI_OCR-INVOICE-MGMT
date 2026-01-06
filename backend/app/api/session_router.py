@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, cast, Float, func, text
 from typing import List, Optional
 from datetime import datetime
 import uuid
@@ -11,6 +10,7 @@ from app.db import get_db
 from app.models_db import Session as SessionModel, Document, Invoice, Receipt, PurchaseOrder, ExtractionResult
 from app.services.document_service import document_service
 from app.services.ocr_service import ocr_service
+from app.services.vector_service import vector_service
 from app.llm.gemini_client import GeminiClient
 
 router = APIRouter(prefix="/api/sessions", tags=["Sessions"])
@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 @router.post("")
 def create_session(
-        name: Optional[str] = None,
-        db: Session = Depends(get_db),
+    name: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
     """Create a new session for grouping multiple documents."""
     session_id = str(uuid.uuid4())
@@ -42,8 +42,8 @@ def create_session(
 
 @router.get("/{session_id}")
 def get_session(
-        session_id: str,
-        db: Session = Depends(get_db),
+    session_id: str,
+    db: Session = Depends(get_db),
 ):
     """Get session details with document count."""
     session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
@@ -63,9 +63,9 @@ def get_session(
 
 @router.post("/{session_id}/upload")
 async def upload_multiple_files(
-        session_id: str,
-        files: List[UploadFile] = File(...),
-        db: Session = Depends(get_db),
+    session_id: str,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
 ):
     """Upload multiple files to a session."""
     session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
@@ -105,41 +105,42 @@ async def upload_multiple_files(
 
 @router.post("/{session_id}/process-all")
 async def process_all_documents(
-        session_id: str,
-        db: Session = Depends(get_db),
+    session_id: str,
+    db: Session = Depends(get_db),
 ):
-    """Process all documents in a session (OCR, detect, extract)."""
+    """Process all documents in a session (OCR, detect, extract, vectorize)."""
     session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Get ALL documents in the session
     documents = db.query(Document).filter(Document.session_id == session_id).all()
-    logger.info(f"Processing {len(documents)} documents for session {session_id}")
+    logger.info("Processing %s documents for session %s", len(documents), session_id)
 
     if not documents:
         raise HTTPException(status_code=400, detail="No documents in session")
 
     results = []
     for idx, doc in enumerate(documents, 1):
-        logger.info(f"Processing document {idx}/{len(documents)}: {doc.filename} (ID: {doc.id})")
+        logger.info("Processing document %s/%s: %s (ID: %s)", idx, len(documents), doc.filename, doc.id)
         try:
             # OCR
             raw_bytes = document_service.read_file_bytes(doc.id, db=db)
             text = ocr_service.extract_text(raw_bytes)
             document_service.save_text(doc.id, text, db=db)
-            logger.info(f"OCR completed for {doc.filename}")
 
-            # Detect
+            # Vectorize OCR text
+            vector_service.upsert_document(
+                session_id=session_id,
+                document_id=doc.id,
+                text=text,
+                metadata={"filename": doc.filename},
+            )
+
+            # Detect & Extract
             detected = gemini.classify_document(text)
             detected_type = detected.get("document_type")
-            logger.info(f"Detected type: {detected_type} for {doc.filename}")
-
-            # Extract
             extraction = gemini.extract_structured(text, detected_type)
-            logger.info(f"Extraction completed for {doc.filename}")
 
-            # Save extraction (similar to extract_router logic)
             if isinstance(extraction, dict):
                 extraction_json = json.dumps(extraction)
 
@@ -147,21 +148,18 @@ async def process_all_documents(
                     invoice = Invoice(
                         id=doc.id,
                         document_id=doc.id,
-                        vendor=extraction.get("vendor_name") or extraction.get("supplier_name") or extraction.get(
-                            "vendor"),
+                        vendor=extraction.get("vendor_name") or extraction.get("supplier_name") or extraction.get("vendor"),
                         invoice_number=extraction.get("invoice_number"),
                         currency=extraction.get("currency"),
                         total_amount=str(extraction.get("total_amount")) if extraction.get("total_amount") else None,
                         raw_metadata=extraction_json,
                     )
                     db.merge(invoice)
-                    logger.info(f"Invoice metadata saved for {doc.filename}")
                 elif detected_type == "receipt":
                     receipt = Receipt(
                         id=doc.id,
                         document_id=doc.id,
-                        merchant=extraction.get("merchant_name") or extraction.get("store_name") or extraction.get(
-                            "merchant"),
+                        merchant=extraction.get("merchant_name") or extraction.get("store_name") or extraction.get("merchant"),
                         receipt_number=extraction.get("receipt_number") or extraction.get("transaction_id"),
                         transaction_date=extraction.get("transaction_date") or extraction.get("date"),
                         currency=extraction.get("currency"),
@@ -170,14 +168,12 @@ async def process_all_documents(
                         raw_metadata=extraction_json,
                     )
                     db.merge(receipt)
-                    logger.info(f"Receipt metadata saved for {doc.filename}")
                 elif detected_type in ["purchase_order", "po"]:
                     po = PurchaseOrder(
                         id=doc.id,
                         document_id=doc.id,
                         po_number=extraction.get("po_number") or extraction.get("purchase_order_number"),
-                        vendor=extraction.get("vendor_name") or extraction.get("supplier_name") or extraction.get(
-                            "vendor"),
+                        vendor=extraction.get("vendor_name") or extraction.get("supplier_name") or extraction.get("vendor"),
                         buyer=extraction.get("buyer_name") or extraction.get("customer_name"),
                         order_date=extraction.get("order_date") or extraction.get("po_date"),
                         currency=extraction.get("currency"),
@@ -185,7 +181,6 @@ async def process_all_documents(
                         raw_metadata=extraction_json,
                     )
                     db.merge(po)
-                    logger.info(f"Purchase order metadata saved for {doc.filename}")
                 else:
                     extract_result = ExtractionResult(
                         id=doc.id,
@@ -194,7 +189,6 @@ async def process_all_documents(
                         raw_metadata=extraction_json,
                     )
                     db.merge(extract_result)
-                    logger.info(f"Extraction result saved for {detected_type}, {doc.filename}")
 
                 db.commit()
 
@@ -202,19 +196,17 @@ async def process_all_documents(
                 "file_id": doc.id,
                 "filename": doc.filename,
                 "status": "success",
-                "detected_type": detected_type,
+                "detected_type": detected.get("document_type"),
             })
         except Exception as e:
-            logger.error(f"Error processing {doc.filename}: {str(e)}", exc_info=True)
+            db.rollback()
+            logger.error("Error processing %s: %s", doc.filename, str(e), exc_info=True)
             results.append({
                 "file_id": doc.id,
                 "filename": doc.filename,
                 "status": "error",
                 "error": str(e),
             })
-
-    logger.info(
-        f"Processing complete. Success: {len([r for r in results if r['status'] == 'success'])}, Failed: {len([r for r in results if r['status'] == 'error'])}")
 
     return {
         "session_id": session_id,
@@ -224,451 +216,195 @@ async def process_all_documents(
     }
 
 
+def _field_type_from_query(query: str) -> str:
+    q = (query or "").lower()
+    if any(word in q for word in ["date", "when", "invoice date", "transaction date"]):
+        return "date"
+    if any(word in q for word in ["vendor", "supplier", "merchant"]):
+        return "vendor"
+    if any(word in q for word in ["invoice number", "invoice no", "inv number"]):
+        return "invoice_number"
+    if any(word in q for word in ["receipt number", "receipt no"]):
+        return "receipt_number"
+    if any(word in q for word in ["po number", "purchase order", "po no"]):
+        return "po_number"
+    if any(word in q for word in ["amount", "total", "price", "cost"]):
+        return "amount"
+    if any(word in q for word in ["currency", "money"]):
+        return "currency"
+    return "general"
+
+
 @router.get("/{session_id}/search")
 def search_session(
-        session_id: str,
-        query: str = Query(..., description="Search keywords"),
-        db: Session = Depends(get_db),
+    session_id: str,
+    query: str = Query(..., description="Search keywords"),
+    db: Session = Depends(get_db),
 ):
     """
-    Search across all documents in a session using OCR text.
-    If query matches a field name (e.g., "date", "vendor"), returns only that field.
-    Returns results in table and JSON format.
+    Vector search (Chroma) across OCR text for all documents in a session.
+    If the query hints at a specific field (date/vendor/amount/etc), only that field is returned.
     """
     session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Get all documents in session
-    documents = db.query(Document).filter(Document.session_id == session_id).all()
-    document_ids = [doc.id for doc in documents]
-
-    if not document_ids:
+    # Vector search
+    search_res = vector_service.search(session_id, query, top_k=10)
+    ids_nested = search_res.get("ids", [])
+    distances_nested = search_res.get("distances", [])
+    if not ids_nested or not ids_nested[0]:
         return {
             "session_id": session_id,
             "query": query,
+            "field_type": _field_type_from_query(query),
             "total_results": 0,
             "results": [],
             "table_data": [],
         }
 
-    query_lower = query.lower().strip()
+    doc_ids = ids_nested[0]
+    distances = distances_nested[0] if distances_nested else [None] * len(doc_ids)
+    doc_map = {
+        d.id: d for d in db.query(Document).filter(Document.id.in_(doc_ids)).all()
+    }
 
-    # Detect field type from query (simple keyword matching - no LLM)
-    field_type = "general"
-    if any(word in query_lower for word in ["date", "when", "invoice date", "transaction date"]):
-        field_type = "date"
-    elif any(word in query_lower for word in ["vendor", "supplier", "merchant"]):
-        field_type = "vendor"
-    elif any(word in query_lower for word in ["invoice number", "invoice no", "inv number"]):
-        field_type = "invoice_number"
-    elif any(word in query_lower for word in ["receipt number", "receipt no"]):
-        field_type = "receipt_number"
-    elif any(word in query_lower for word in ["po number", "purchase order", "po no"]):
-        field_type = "po_number"
-    elif any(word in query_lower for word in ["amount", "total", "price", "cost"]):
-        field_type = "amount"
-    elif any(word in query_lower for word in ["currency", "money"]):
-        field_type = "currency"
-
-    # Search OCR text for the query
-    matching_docs = []
-    for doc in documents:
-        # Get OCR text
-        ocr_text = document_service.get_text(doc.id, db=db)
-        if ocr_text and query.lower() in ocr_text.lower():
-            matching_docs.append(doc)
-
-    if not matching_docs:
-        return {
-            "session_id": session_id,
-            "query": query,
-            "field_type": field_type,
-            "total_results": 0,
-            "results": [],
-            "table_data": [],
-        }
-
+    field_type = _field_type_from_query(query)
     results = []
     table_data = []
 
-    # Get extraction results for matching documents
-    matching_doc_ids = [doc.id for doc in matching_docs]
+    for doc_id, dist in zip(doc_ids, distances):
+        doc = doc_map.get(doc_id)
+        if not doc:
+            continue
 
-    if field_type == "date":
-        # Get dates from invoices
-        invoices = db.query(Invoice).filter(Invoice.document_id.in_(matching_doc_ids)).all()
-        for inv in invoices:
-            doc = next((d for d in matching_docs if d.id == inv.document_id), None)
-            if not doc:
-                continue
-            try:
-                metadata = json.loads(inv.raw_metadata) if inv.raw_metadata else {}
-                invoice_date = (
-                        metadata.get("invoice_date") or
-                        metadata.get("date") or
-                        metadata.get("invoiceDate") or
-                        metadata.get("invoice_date_formatted") or
-                        ""
-                )
-                if invoice_date:
-                    results.append({
-                        "document_id": inv.document_id,
-                        "document_type": "invoice",
-                        "filename": doc.filename,
-                        "date": invoice_date,
-                    })
-                    table_data.append({
-                        "Date": invoice_date,
-                        "Document Name": doc.filename,
-                    })
-            except:
-                pass
+        # Fetch related records
+        inv = db.query(Invoice).filter(Invoice.document_id == doc_id).first()
+        rec = db.query(Receipt).filter(Receipt.document_id == doc_id).first()
+        po = db.query(PurchaseOrder).filter(PurchaseOrder.document_id == doc_id).first()
 
-        # Get dates from receipts
-        receipts = db.query(Receipt).filter(Receipt.document_id.in_(matching_doc_ids)).all()
-        for rec in receipts:
-            doc = next((d for d in matching_docs if d.id == rec.document_id), None)
-            if not doc:
-                continue
-            transaction_date = rec.transaction_date or ""
-            if not transaction_date:
+        def add_result(field_label: str, value: Optional[str], extra: Optional[dict] = None):
+            if value:
+                results.append({
+                    "document_id": doc_id,
+                    "document_type": (inv and "invoice") or (rec and "receipt") or (po and "purchase_order") or "unknown",
+                    "filename": doc.filename,
+                    field_label: value,
+                    "score": dist,
+                    **(extra or {}),
+                })
+                table_data.append({
+                    field_label.replace("_", " ").title(): value,
+                    "Document Name": doc.filename,
+                    "Score": dist,
+                })
+
+        if field_type == "date":
+            date_val = None
+            if inv:
                 try:
-                    metadata = json.loads(rec.raw_metadata) if rec.raw_metadata else {}
-                    transaction_date = (
-                            metadata.get("transaction_date") or
-                            metadata.get("date") or
-                            metadata.get("transactionDate") or
-                            ""
-                    )
-                except:
-                    pass
+                    meta = json.loads(inv.raw_metadata) if inv.raw_metadata else {}
+                    date_val = meta.get("invoice_date") or meta.get("date") or meta.get("invoiceDate") or meta.get("invoice_date_formatted")
+                except Exception:
+                    date_val = None
+            if not date_val and rec:
+                date_val = rec.transaction_date
+                if not date_val:
+                    try:
+                        meta = json.loads(rec.raw_metadata) if rec.raw_metadata else {}
+                        date_val = meta.get("transaction_date") or meta.get("date") or meta.get("transactionDate")
+                    except Exception:
+                        date_val = None
+            if not date_val and po:
+                date_val = po.order_date
+                if not date_val:
+                    try:
+                        meta = json.loads(po.raw_metadata) if po.raw_metadata else {}
+                        date_val = meta.get("order_date") or meta.get("date") or meta.get("orderDate")
+                    except Exception:
+                        date_val = None
+            add_result("date", date_val)
+            continue
 
-            if transaction_date:
-                results.append({
-                    "document_id": rec.document_id,
-                    "document_type": "receipt",
-                    "filename": doc.filename,
-                    "date": transaction_date,
-                })
-                table_data.append({
-                    "Date": transaction_date,
-                    "Document Name": doc.filename,
-                })
+        if field_type == "vendor":
+            vendor_val = None
+            if inv:
+                vendor_val = inv.vendor
+                if not vendor_val:
+                    try:
+                        meta = json.loads(inv.raw_metadata) if inv.raw_metadata else {}
+                        vendor_val = meta.get("vendor_name") or meta.get("supplier_name") or meta.get("vendor")
+                    except Exception:
+                        vendor_val = None
+            if not vendor_val and rec:
+                vendor_val = rec.merchant
+                if not vendor_val:
+                    try:
+                        meta = json.loads(rec.raw_metadata) if rec.raw_metadata else {}
+                        vendor_val = meta.get("merchant_name") or meta.get("store_name") or meta.get("merchant")
+                    except Exception:
+                        vendor_val = None
+            if not vendor_val and po:
+                vendor_val = po.vendor
+                if not vendor_val:
+                    try:
+                        meta = json.loads(po.raw_metadata) if po.raw_metadata else {}
+                        vendor_val = meta.get("vendor_name") or meta.get("supplier_name") or meta.get("vendor")
+                    except Exception:
+                        vendor_val = None
+            add_result("vendor", vendor_val)
+            continue
 
-        # Get dates from purchase orders
-        pos = db.query(PurchaseOrder).filter(PurchaseOrder.document_id.in_(matching_doc_ids)).all()
-        for po in pos:
-            doc = next((d for d in matching_docs if d.id == po.document_id), None)
-            if not doc:
-                continue
-            order_date = po.order_date or ""
-            if not order_date:
-                try:
-                    metadata = json.loads(po.raw_metadata) if po.raw_metadata else {}
-                    order_date = (
-                            metadata.get("order_date") or
-                            metadata.get("date") or
-                            metadata.get("orderDate") or
-                            ""
-                    )
-                except:
-                    pass
+        if field_type == "invoice_number" and inv:
+            add_result("invoice_number", inv.invoice_number)
+            continue
 
-            if order_date:
-                results.append({
-                    "document_id": po.document_id,
-                    "document_type": "purchase_order",
-                    "filename": doc.filename,
-                    "date": order_date,
-                })
-                table_data.append({
-                    "Date": order_date,
-                    "Document Name": doc.filename,
-                })
+        if field_type == "receipt_number" and rec:
+            add_result("receipt_number", rec.receipt_number)
+            continue
 
-    elif field_type == "vendor":
-        # Get vendors from invoices
-        invoices = db.query(Invoice).filter(Invoice.document_id.in_(matching_doc_ids)).all()
-        for inv in invoices:
-            doc = next((d for d in matching_docs if d.id == inv.document_id), None)
-            if not doc:
-                continue
-            vendor = inv.vendor or ""
-            if not vendor:
-                try:
-                    metadata = json.loads(inv.raw_metadata) if inv.raw_metadata else {}
-                    vendor = (
-                            metadata.get("vendor_name") or
-                            metadata.get("supplier_name") or
-                            metadata.get("vendor") or
-                            ""
-                    )
-                except:
-                    pass
+        if field_type == "po_number" and po:
+            add_result("po_number", po.po_number)
+            continue
 
-            if vendor:
-                results.append({
-                    "document_id": inv.document_id,
-                    "document_type": "invoice",
-                    "filename": doc.filename,
-                    "vendor": vendor,
-                })
-                table_data.append({
-                    "Vendor": vendor,
-                    "Document Name": doc.filename,
-                })
+        if field_type == "amount":
+            amount_val = None
+            currency_val = None
+            if inv and inv.total_amount:
+                amount_val = inv.total_amount
+                currency_val = inv.currency
+            if not amount_val and rec and rec.total_amount:
+                amount_val = rec.total_amount
+                currency_val = rec.currency
+            if not amount_val and po and po.total_amount:
+                amount_val = po.total_amount
+                currency_val = po.currency
+            if amount_val:
+                add_result("total_amount", amount_val, {"currency": currency_val})
+            continue
 
-        # Get merchants from receipts
-        receipts = db.query(Receipt).filter(Receipt.document_id.in_(matching_doc_ids)).all()
-        for rec in receipts:
-            doc = next((d for d in matching_docs if d.id == rec.document_id), None)
-            if not doc:
-                continue
-            merchant = rec.merchant or ""
-            if not merchant:
-                try:
-                    metadata = json.loads(rec.raw_metadata) if rec.raw_metadata else {}
-                    merchant = (
-                            metadata.get("merchant_name") or
-                            metadata.get("store_name") or
-                            metadata.get("merchant") or
-                            ""
-                    )
-                except:
-                    pass
+        if field_type == "currency":
+            curr_val = None
+            if inv and inv.currency:
+                curr_val = inv.currency
+            if not curr_val and rec and rec.currency:
+                curr_val = rec.currency
+            if not curr_val and po and po.currency:
+                curr_val = po.currency
+            add_result("currency", curr_val)
+            continue
 
-            if merchant:
-                results.append({
-                    "document_id": rec.document_id,
-                    "document_type": "receipt",
-                    "filename": doc.filename,
-                    "merchant": merchant,
-                })
-                table_data.append({
-                    "Vendor": merchant,
-                    "Document Name": doc.filename,
-                })
-
-        # Get vendors from purchase orders
-        pos = db.query(PurchaseOrder).filter(PurchaseOrder.document_id.in_(matching_doc_ids)).all()
-        for po in pos:
-            doc = next((d for d in matching_docs if d.id == po.document_id), None)
-            if not doc:
-                continue
-            vendor = po.vendor or ""
-            if not vendor:
-                try:
-                    metadata = json.loads(po.raw_metadata) if po.raw_metadata else {}
-                    vendor = (
-                            metadata.get("vendor_name") or
-                            metadata.get("supplier_name") or
-                            metadata.get("vendor") or
-                            ""
-                    )
-                except:
-                    pass
-
-            if vendor:
-                results.append({
-                    "document_id": po.document_id,
-                    "document_type": "purchase_order",
-                    "filename": doc.filename,
-                    "vendor": vendor,
-                })
-                table_data.append({
-                    "Vendor": vendor,
-                    "Document Name": doc.filename,
-                })
-
-    elif field_type == "invoice_number":
-        invoices = db.query(Invoice).filter(Invoice.document_id.in_(matching_doc_ids)).all()
-        for inv in invoices:
-            doc = next((d for d in matching_docs if d.id == inv.document_id), None)
-            if not doc:
-                continue
-            invoice_num = inv.invoice_number or ""
-            if invoice_num:
-                results.append({
-                    "document_id": inv.document_id,
-                    "document_type": "invoice",
-                    "filename": doc.filename,
-                    "invoice_number": invoice_num,
-                })
-                table_data.append({
-                    "Invoice Number": invoice_num,
-                    "Document Name": doc.filename,
-                })
-
-    elif field_type == "receipt_number":
-        receipts = db.query(Receipt).filter(Receipt.document_id.in_(matching_doc_ids)).all()
-        for rec in receipts:
-            doc = next((d for d in matching_docs if d.id == rec.document_id), None)
-            if not doc:
-                continue
-            receipt_num = rec.receipt_number or ""
-            if receipt_num:
-                results.append({
-                    "document_id": rec.document_id,
-                    "document_type": "receipt",
-                    "filename": doc.filename,
-                    "receipt_number": receipt_num,
-                })
-                table_data.append({
-                    "Receipt Number": receipt_num,
-                    "Document Name": doc.filename,
-                })
-
-    elif field_type == "po_number":
-        pos = db.query(PurchaseOrder).filter(PurchaseOrder.document_id.in_(matching_doc_ids)).all()
-        for po in pos:
-            doc = next((d for d in matching_docs if d.id == po.document_id), None)
-            if not doc:
-                continue
-            po_num = po.po_number or ""
-            if po_num:
-                results.append({
-                    "document_id": po.document_id,
-                    "document_type": "purchase_order",
-                    "filename": doc.filename,
-                    "po_number": po_num,
-                })
-                table_data.append({
-                    "PO Number": po_num,
-                    "Document Name": doc.filename,
-                })
-
-    elif field_type == "amount":
-        # Get amounts from all document types
-        invoices = db.query(Invoice).filter(Invoice.document_id.in_(matching_doc_ids)).all()
-        for inv in invoices:
-            doc = next((d for d in matching_docs if d.id == inv.document_id), None)
-            if not doc:
-                continue
-            amount = inv.total_amount or ""
-            currency = inv.currency or ""
-            if amount:
-                results.append({
-                    "document_id": inv.document_id,
-                    "document_type": "invoice",
-                    "filename": doc.filename,
-                    "total_amount": amount,
-                    "currency": currency,
-                })
-                table_data.append({
-                    "Total Amount": amount,
-                    "Currency": currency,
-                    "Document Name": doc.filename,
-                })
-
-        receipts = db.query(Receipt).filter(Receipt.document_id.in_(matching_doc_ids)).all()
-        for rec in receipts:
-            doc = next((d for d in matching_docs if d.id == rec.document_id), None)
-            if not doc:
-                continue
-            amount = rec.total_amount or ""
-            currency = rec.currency or ""
-            if amount:
-                results.append({
-                    "document_id": rec.document_id,
-                    "document_type": "receipt",
-                    "filename": doc.filename,
-                    "total_amount": amount,
-                    "currency": currency,
-                })
-                table_data.append({
-                    "Total Amount": amount,
-                    "Currency": currency,
-                    "Document Name": doc.filename,
-                })
-
-        pos = db.query(PurchaseOrder).filter(PurchaseOrder.document_id.in_(matching_doc_ids)).all()
-        for po in pos:
-            doc = next((d for d in matching_docs if d.id == po.document_id), None)
-            if not doc:
-                continue
-            amount = po.total_amount or ""
-            currency = po.currency or ""
-            if amount:
-                results.append({
-                    "document_id": po.document_id,
-                    "document_type": "purchase_order",
-                    "filename": doc.filename,
-                    "total_amount": amount,
-                    "currency": currency,
-                })
-                table_data.append({
-                    "Total Amount": amount,
-                    "Currency": currency,
-                    "Document Name": doc.filename,
-                })
-
-    elif field_type == "currency":
-        invoices = db.query(Invoice).filter(Invoice.document_id.in_(matching_doc_ids)).all()
-        for inv in invoices:
-            doc = next((d for d in matching_docs if d.id == inv.document_id), None)
-            if not doc:
-                continue
-            currency = inv.currency or ""
-            if currency:
-                results.append({
-                    "document_id": inv.document_id,
-                    "document_type": "invoice",
-                    "filename": doc.filename,
-                    "currency": currency,
-                })
-                table_data.append({
-                    "Currency": currency,
-                    "Document Name": doc.filename,
-                })
-
-        receipts = db.query(Receipt).filter(Receipt.document_id.in_(matching_doc_ids)).all()
-        for rec in receipts:
-            doc = next((d for d in matching_docs if d.id == rec.document_id), None)
-            if not doc:
-                continue
-            currency = rec.currency or ""
-            if currency:
-                results.append({
-                    "document_id": rec.document_id,
-                    "document_type": "receipt",
-                    "filename": doc.filename,
-                    "currency": currency,
-                })
-                table_data.append({
-                    "Currency": currency,
-                    "Document Name": doc.filename,
-                })
-
-        pos = db.query(PurchaseOrder).filter(PurchaseOrder.document_id.in_(matching_doc_ids)).all()
-        for po in pos:
-            doc = next((d for d in matching_docs if d.id == po.document_id), None)
-            if not doc:
-                continue
-            currency = po.currency or ""
-            if currency:
-                results.append({
-                    "document_id": po.document_id,
-                    "document_type": "purchase_order",
-                    "filename": doc.filename,
-                    "currency": currency,
-                })
-                table_data.append({
-                    "Currency": currency,
-                    "Document Name": doc.filename,
-                })
-
-    else:
-        # General search - return basic document info
-        for doc in matching_docs:
-            results.append({
-                "document_id": doc.id,
-                "filename": doc.filename,
-            })
-            table_data.append({
-                "Document Name": doc.filename,
-                "Document ID": doc.id,
-            })
+        # General fallback: return doc match with score
+        results.append({
+            "document_id": doc_id,
+            "filename": doc.filename,
+            "score": dist,
+        })
+        table_data.append({
+            "Document Name": doc.filename,
+            "Document ID": doc_id,
+            "Score": dist,
+        })
 
     return {
         "session_id": session_id,
@@ -682,9 +418,9 @@ def search_session(
 
 @router.get("")
 def list_sessions(
-        skip: int = Query(0, ge=0),
-        limit: int = Query(100, ge=1, le=1000),
-        db: Session = Depends(get_db),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
 ):
     """List all sessions."""
     sessions = db.query(SessionModel).offset(skip).limit(limit).order_by(SessionModel.created_at.desc()).all()
@@ -707,3 +443,4 @@ def list_sessions(
         "limit": limit,
         "sessions": session_list,
     }
+
